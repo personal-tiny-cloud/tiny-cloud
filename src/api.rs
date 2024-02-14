@@ -1,6 +1,7 @@
 use crate::auth;
 use crate::plugins::PLUGINS;
 use crate::*;
+use actix_identity::error::GetIdentityError;
 use actix_identity::Identity;
 use actix_web::http::StatusCode;
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
@@ -11,38 +12,44 @@ use std::sync::OnceLock;
 use tcloud_library::error::PluginError;
 use zeroize::Zeroizing;
 
-/// API Errors returned to the client
-#[derive(Serialize)]
-#[serde(tag = "error", content = "message")]
-enum ErrorTypes {
-    /// Returned when credentials don't meet the necessary length or format requirements
-    BadCredentials(String),
-    /// Returned when the password is wrong
-    BadPassword(String),
-    /// Returned when the requested user is not found
-    UserNotFound(String),
-    /// Returned when an internal server error happens
-    InternalServerError(String),
-}
-
-impl ErrorTypes {
-    fn http_code(&self) -> u16 {
-        match self {
-            Self::BadCredentials(_) => 400,
-            Self::BadPassword(_) => 401,
-            Self::UserNotFound(_) => 404,
-            Self::InternalServerError(_) => 500,
+macro_rules! handle_error {
+    ($err:expr) => {{
+        match $err {
+            auth::AuthError::InternalError(ref err) => {
+                log::error!("An internal error occurred: {}", err);
+                return HttpResponse::InternalServerError().body($err.to_string());
+            }
+            auth::AuthError::BadCredentials(_) => {
+                return HttpResponse::BadRequest().body($err.to_string());
+            }
+            auth::AuthError::InvalidCredentials => {
+                return HttpResponse::Forbidden().body($err.to_string());
+            }
         }
-    }
+    }};
 }
 
-macro_rules! mkresponse {
-    ($error:ident, $message:expr) => {{
-        let error = ErrorTypes::$error($message.to_owned());
-        HttpResponse::build(
-            StatusCode::from_u16(error.http_code()).expect("An invalid HTTP code has been used"),
-        )
-        .body(serde_json::to_string(&error).expect("Error serialization failed"))
+macro_rules! get_user {
+    ($id:expr) => {{
+        match $id {
+            Ok(user) => user,
+            Err(err) => match err {
+                GetIdentityError::SessionExpiryError(_) => {
+                    return HttpResponse::Forbidden().body("The session has expired, login again")
+                }
+                GetIdentityError::MissingIdentityError(_) => {
+                    return HttpResponse::Forbidden().body("Invalid session, login again")
+                }
+                _ => {
+                    log::error!(
+                        "An error occurred while getting username from identity: {}",
+                        err
+                    );
+                    return HttpResponse::InternalServerError()
+                        .body("An internal server error occurred while authenticating");
+                }
+            },
+        }
     }};
 }
 
@@ -54,8 +61,10 @@ pub async fn info() -> impl Responder {
     HttpResponse::Ok().body(
         INFO.get_or_init(|| {
             json!({
+                "name": config!(server_name),
                 "version": env!("CARGO_PKG_VERSION"),
-                "description": config!(description)
+                "description": config!(description),
+                "source": env!("CARGO_PKG_REPOSITORY")
             })
             .to_string()
         })
@@ -82,10 +91,10 @@ pub async fn plugin_handler(req: HttpRequest, path: web::Path<String>) -> HttpRe
         Err(err) => match err {
             PluginError::IOError(err) => {
                 log::error!("Internal IO Error: {:?}", err);
-                mkresponse!(
-                    InternalServerError,
-                    format!("An IO error occurred while using `{}` plugin", plugin_name)
-                )
+                HttpResponse::InternalServerError().body(format!(
+                    "An IO error occurred while using `{}` plugin",
+                    plugin_name
+                ))
             }
             PluginError::InvalidRequest(resp) => HttpResponse::BadRequest().body(resp),
             PluginError::RequestFailed(code, resp) => {
@@ -101,26 +110,6 @@ pub async fn plugin_handler(req: HttpRequest, path: web::Path<String>) -> HttpRe
             ),
         },
     }
-}
-
-macro_rules! handle_db_error {
-    ($err:expr) => {{
-        match $err {
-            auth::DBError::IOError(err)
-            | auth::DBError::HashingError(err)
-            | auth::DBError::SerializationError(err) => {
-                log::error!("An error occurred during login: {}", err);
-                return mkresponse!(InternalServerError, "An internal error occurred");
-            }
-            auth::DBError::UserNotFound => {
-                return mkresponse!(UserNotFound, "This user has not been found")
-            }
-            auth::DBError::BadCredentials(_) => {
-                return mkresponse!(BadCredentials, format!("{}", $err))
-            }
-            auth::DBError::BadPassword => return mkresponse!(BadPassword, format!("{}", $err)),
-        }
-    }};
 }
 
 #[derive(Deserialize)]
@@ -163,11 +152,12 @@ pub async fn login(req: HttpRequest, login: web::Json<Login>) -> impl Responder 
         Ok(_) => {
             if let Err(err) = Identity::login(&req.extensions(), login.user) {
                 log::error!("Failed to build Identity: {}", err);
-                return mkresponse!(InternalServerError, "Failed to build session");
+                return HttpResponse::InternalServerError()
+                    .body("Internal server error occurred while making session");
             }
             HttpResponse::Ok().body("")
         }
-        Err(err) => handle_db_error!(err),
+        Err(err) => handle_error!(err),
     }
 }
 
@@ -181,16 +171,10 @@ pub async fn logout(user: Identity) -> impl Responder {
 /// Deletes an user's own account
 #[get("/delete")]
 pub async fn delete(user: Identity) -> impl Responder {
-    let username = match user.id() {
-        Ok(user) => user,
-        Err(err) => {
-            log::error!("Failed to get user id: {}", err);
-            return mkresponse!(InternalServerError, "An internal server error occurred");
-        }
-    };
+    let username = get_user!(user.id());
     user.logout();
     if let Err(err) = auth::delete(username).await {
-        handle_db_error!(err);
+        handle_error!(err);
     } else {
         HttpResponse::Ok().body("")
     }

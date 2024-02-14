@@ -18,3 +18,15 @@ macro_rules! config {
         &CONFIG.get().expect("Config hasn't been opened yet")$(.$config)*
     }};
 }
+
+/// Gets a CSS/JS file from assets
+#[macro_export]
+macro_rules! web_file {
+    ($filename:expr) => {
+        PreEscaped(include_str!(concat!(
+            env!("OUT_DIR"),
+            "/assets/",
+            $filename
+        )))
+    };
+}

@@ -35,12 +35,26 @@ pub enum DBError {
     SerializationError(String),
     #[error("Password hashing failed: `{0}`")]
     HashingError(String),
-    #[error("User not found")]
-    UserNotFound,
+}
+
+#[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("An internal server error occurred")]
+    InternalError(DBError),
     #[error("Bad credentials were given: {0}")]
     BadCredentials(String),
-    #[error("Invalid password")]
-    BadPassword,
+    #[error("Invalid credentials")]
+    InvalidCredentials,
+}
+
+impl AuthError {
+    fn http_code(&self) -> u16 {
+        match self {
+            Self::BadCredentials(_) => 400,
+            Self::InvalidCredentials => 401,
+            Self::InternalError(_) => 500,
+        }
+    }
 }
 
 /// Struct containing valid tokens which can be used to make new accounts.
@@ -66,7 +80,7 @@ impl Default for Tokens {
 }
 
 /// Initializes DB global variables.
-/// Must during server initialization.
+/// Must be executed during server initialization.
 pub async fn init_db() -> Result<()> {
     let db_path = format!("{}/users.json", config!(data_directory));
     match File::open(&db_path).await {
@@ -120,7 +134,7 @@ async fn dump_db() -> Result<(), DBError> {
     Ok(())
 }
 
-fn check_validity(user: &String, password: &Vec<u8>) -> Result<(), DBError> {
+fn check_validity(user: &String, password: &Vec<u8>) -> Result<(), AuthError> {
     let user_len = user.len();
     let passwd_len = password.len();
     let max_username_size = *config!(max_username_size) as usize;
@@ -128,20 +142,20 @@ fn check_validity(user: &String, password: &Vec<u8>) -> Result<(), DBError> {
     let max_passwd_size = *config!(max_passwd_size) as usize;
     let min_passwd_size = *config!(min_passwd_size) as usize;
     if user_len > max_username_size || user_len < min_username_size {
-        return Err(DBError::BadCredentials(format!(
+        return Err(AuthError::BadCredentials(format!(
             "Accepted username size is between {} and {} characters",
             min_username_size, max_username_size
         )));
     }
     if passwd_len > max_passwd_size || passwd_len < min_passwd_size {
-        return Err(DBError::BadCredentials(format!(
+        return Err(AuthError::BadCredentials(format!(
             "Accepted password length is between {} and {} bytes",
             min_passwd_size, max_passwd_size
         )));
     }
     for c in user.chars() {
         if !c.is_alphanumeric() {
-            return Err(DBError::BadCredentials(format!(
+            return Err(AuthError::BadCredentials(format!(
                 "Username must be alphanumerical"
             )));
         }
@@ -150,53 +164,54 @@ fn check_validity(user: &String, password: &Vec<u8>) -> Result<(), DBError> {
 }
 
 /// Checks a user's password
-pub async fn check_passwd(user: &String, password: &Vec<u8>) -> Result<(), DBError> {
+pub async fn check_passwd(user: &String, password: &Vec<u8>) -> Result<(), AuthError> {
     check_validity(user, password)?;
     let hash = {
         let users = get_db!(read);
         let user = match users.get(user) {
             Some(hash) => hash,
-            None => return Err(DBError::UserNotFound),
+            None => return Err(AuthError::InvalidCredentials),
         };
         user.clone()
     };
-    let parsed_hash =
-        PasswordHash::new(&hash).map_err(|e| DBError::HashingError(format!("{}", e)))?;
+    let parsed_hash = PasswordHash::new(&hash)
+        .map_err(|e| AuthError::InternalError(DBError::HashingError(format!("{}", e))))?;
     match Argon2::default().verify_password(password, &parsed_hash) {
         Ok(_) => Ok(()),
         Err(err) => match err {
-            errors::Error::Password => Err(DBError::BadPassword),
-            _ => Err(DBError::HashingError(format!("{}", err))),
+            errors::Error::Password => Err(AuthError::InvalidCredentials),
+            _ => Err(AuthError::InternalError(DBError::HashingError(format!(
+                "{}",
+                err
+            )))),
         },
     }
 }
 
 /// Sets a new user. If the user already exists, the password or admin status is changed.
-pub async fn set_user(user: String, password: &Vec<u8>) -> Result<(), DBError> {
+pub async fn set_user(user: String, password: &Vec<u8>) -> Result<(), AuthError> {
     check_validity(&user, password)?;
     let passwd_hash = {
         let salt = SaltString::generate(&mut OsRng);
         let argon2 = Argon2::default();
         argon2
             .hash_password(password, &salt)
-            .map_err(|e| DBError::HashingError(format!("{}", e)))?
+            .map_err(|e| AuthError::InternalError(DBError::HashingError(format!("{}", e))))?
             .to_string()
     };
     {
         let mut users = get_db!(write);
         users.insert(user, passwd_hash);
     }
-    dump_db().await?;
+    dump_db().await.map_err(|e| AuthError::InternalError(e))?;
     Ok(())
 }
 
-pub async fn delete(user: String) -> Result<(), DBError> {
+pub async fn delete(user: String) -> Result<(), AuthError> {
     {
         let mut users = get_db!(write);
-        if let None = users.remove(&user) {
-            return Err(DBError::UserNotFound);
-        }
+        users.remove(&user);
     }
-    dump_db().await?;
+    dump_db().await.map_err(|e| AuthError::InternalError(e))?;
     Ok(())
 }

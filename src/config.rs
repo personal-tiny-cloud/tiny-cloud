@@ -31,6 +31,8 @@ pub struct Registration {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Config {
+    pub server_name: String,
+    pub description: String,
     pub server: Server,
     pub tls: Option<Tls>,
     pub registration: Option<Registration>,
@@ -44,7 +46,6 @@ pub struct Config {
     pub min_username_size: u8,
     pub max_passwd_size: u16,
     pub min_passwd_size: u16,
-    pub description: String,
 }
 
 fn get_exec_dir() -> Result<String> {
@@ -59,8 +60,10 @@ fn get_exec_dir() -> Result<String> {
 impl Config {
     pub fn default() -> Result<Self> {
         Ok(Self {
+            description: env!("CARGO_PKG_DESCRIPTION").to_string(),
+            server_name: "Tiny Cloud".into(),
             server: Server {
-                host: "127.0.0.1".to_string(),
+                host: "127.0.0.1".into(),
                 port: 80,
                 workers: num_cpus::get(),
             },
@@ -80,7 +83,6 @@ impl Config {
             min_username_size: 3,
             max_passwd_size: 256,
             min_passwd_size: 9,
-            description: env!("CARGO_PKG_DESCRIPTION").to_string(),
         })
     }
 }

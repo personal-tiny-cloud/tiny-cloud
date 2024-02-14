@@ -1,11 +1,3 @@
-<!DOCTYPE html>
-<html lang="en-US">
-<head>
-<title>Login Page</title>
-<meta name="application-name" content="Tiny Cloud">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<script type="text/javascript">
 function setErrorMsg(string) {
 	var error_msg = document.getElementById("errormsg");
 	error_msg.innerHTML = string;
@@ -51,20 +43,6 @@ async function submit(form) {
 	}
 }
 
-async function applyInfo() {
-	let info = await fetch('/tcloud/api/info').then(resp => resp.json());
-	var version = document.getElementById("version");
-	var description = document.getElementById("description");
-	version.innerHTML = info.version;
-	description.innerHTML = info.description;
-}
-
-try {
-	applyInfo();
-} catch (err) {
-	console.log('Failed to apply server info: ' + err)
-}
-	
 window.onload = function() {
 	var login = document.getElementById('login');
 	login.onsubmit = function(event) {
@@ -77,48 +55,5 @@ window.onload = function() {
 		}
 		return false;
 	};
-};
-</script>
-<style>
-body {
-	margin: auto;
-	text-align: center;
-	font-family: Sans-serif;
 }
 
-#title {
-	font-size: 400%;
-	padding: 20px 30px;
-	border-color: blue;
-	border-width: 5px;
-	border-radius: 0px 0px 100px 100px;
-	border-style: none solid solid solid;
-	width: fit-content;
-	width: -webkit-fit-content;
-	width: -moz-fit-content;
-}
-
-#version {
-	font-size: 150%;
-}
-
-#description {
-	font-size: 200%;
-	color: grey;
-}
-</style>
-</head>
-<body>
-	<p><div id="title">Tiny Cloud</div>
-	<div id="version">...</div></p>
-	<p><div id="description">...</div></p>
-	<form id="login" name="login">
-		<label for="user">Username:</label><br>
-		<input type="text" id="user" name="user"><br>
-		<label for="password">Password:</label><br>
-		<input type="password" id="password" name="password"><br>
-		<input value="Login" type="submit">
-	</form>
-	<div id="errormsg"></div>
-</body>
-</html>

@@ -8,28 +8,33 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.29", features = [ "sync", "fs", "parking_lot" ] }
 actix-web = { version = "4", features = [ "secure-cookies", "openssl" ] }
-actix-session = { version = "0.8", features = [ "cookie-session" ] }
-actix-identity = "0.6"
+actix-session = { version = "0.9", features = [ "cookie-session" ] }
+actix-identity = "0.7"
 openssl = "0.10"
 log = "0.4"
-env_logger = "0.10"
+env_logger = "0.11"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_yaml = "0.9"
 serde_json = "1"
 clap = { version = "4", features = [ "derive" ] }
 anyhow = "1"
-#async-compression = { version = "0.3", features = [ "tokio", "xz" ] }
 num_cpus = "1"
 thiserror = "1"
 argon2 = "0.5"
-#chacha20poly1305 = { version = "0.10", features = [ "stream" ] }
 rand_core = "0.6"
-#rand = "0.8"
 zeroize = { version = "1.6", features = [ "zeroize_derive" ] }
 rpassword = "7"
-include_dir = "0.7"
+maud = { version = "0.26", features = [ "actix-web" ] }
 tcloud-library = { path = "../tcloud-library" }
 
 # Plugins
-tcloud-archive = { path = "../tcloud-archive" }
+tcloud-archive = { path = "../tcloud-archive", optional = true }
+
+[features]
+default = [ "archive" ]
+archive = [ "dep:tcloud-archive" ]
+
+[build-dependencies]
+minify-js = "0.6.0"
+lightningcss = "1.0.0-alpha.52"
 

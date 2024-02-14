@@ -1,0 +1,27 @@
+body {
+	margin: auto;
+	text-align: center;
+	font-family: Sans-serif;
+}
+
+#title {
+	font-size: 400%;
+	padding: 20px 30px;
+	border-color: blue;
+	border-width: 5px;
+	border-radius: 0px 0px 100px 100px;
+	border-style: none solid solid solid;
+	width: fit-content;
+	width: -webkit-fit-content;
+	width: -moz-fit-content;
+}
+
+#version {
+	font-size: 150%;
+}
+
+#description {
+	font-size: 200%;
+	color: grey;
+}
+

@@ -1,25 +1,53 @@
 use actix_identity::Identity;
-use actix_web::{get, web, App, HttpResponse, HttpServer, Responder};
-use include_dir::{include_dir, Dir};
+use actix_web::{get, Result as AwResult};
+use maud::{html, Markup, PreEscaped, DOCTYPE};
 
-/// HTML files
-static HTML_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/html");
-
-fn get_html(html: &str) -> String {
-    HTML_DIR
-        .get_file(html)
-        .expect(&format!("Couldn't find {} file", html))
-        .contents_utf8()
-        .expect(&format!("Invalid UTF-8 file: {}", html))
-        .to_owned()
-}
+use crate::{config, web_file};
 
 #[get("")]
-pub async fn root(user: Option<Identity>) -> impl Responder {
+pub async fn root(user: Option<Identity>) -> AwResult<Markup> {
     if let Some(user) = user {
         let username = user.id().unwrap();
-        HttpResponse::Ok().body(format!("Hi {}", username))
+        Ok(html! {
+            (DOCTYPE)
+            html lang="en-US" {
+                head {
+                    title { "Main page" }
+                    meta name="application-name" content=(config!(server_name));
+                    meta charset="utf-8";
+                    meta name="viewport" content="width=device-width, initial-scale=1.0";
+                }
+                body {
+                    h1 { "Hi " (username) }
+                }
+            }
+        })
     } else {
-        HttpResponse::Ok().body(get_html("login.html"))
+        Ok(html! {
+            (DOCTYPE)
+            html lang="en-US" {
+                head {
+                    title { "Login page" }
+                    meta name="application-name" content=(config!(server_name));
+                    meta charset="utf-8";
+                    meta name="viewport" content="width=device-width, initial-scale=1.0";
+                    script type="text/javascript" { (web_file!("login.js")) }
+                    style { (web_file!("login.css")) }
+                }
+                body {
+                   p { div id="title" { (config!(server_name)) } }
+                   p { div id="version" { (env!("CARGO_PKG_VERSION")) } }
+                   p { div id="description" { (config!(description)) } }
+                   form id="login" name="login" {
+                        br { label for="user" { "Username:" } }
+                        br { input type="text" id="user" name="user"; }
+                        br { label for="password" { "Password:" } }
+                        br { input type="password" id="password" name="password"; }
+                        input value="Login" type="submit";
+                   }
+                }
+                div id="errormsg";
+            }
+        })
     }
 }
