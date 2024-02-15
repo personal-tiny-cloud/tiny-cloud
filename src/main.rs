@@ -1,9 +1,9 @@
 mod api;
-mod config;
-//mod encryption;
 mod auth;
+mod config;
+mod logging;
 mod plugins;
-mod web_ui;
+mod webui;
 #[macro_use]
 mod macros;
 use actix_identity::IdentityMiddleware;
@@ -14,10 +14,7 @@ use actix_web::{
 };
 use anyhow::{Context, Result};
 use clap::Parser;
-use std::{
-    env,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 use tokio::fs;
 use zeroize::{Zeroize, Zeroizing};
 
@@ -35,7 +32,8 @@ struct Args {
     create_user: bool,
 }
 
-async fn run() -> Result<()> {
+#[actix_web::main]
+async fn main() -> Result<()> {
     let args = Args::parse();
 
     if args.write_default {
@@ -123,16 +121,16 @@ async fn run() -> Result<()> {
                         .service(
                             web::scope("/api")
                                 .service(api::info)
-                                .route("/app/{name}", web::get().to(api::plugin_handler))
-                                .route("/app/{name}", web::post().to(api::plugin_handler))
-                                .route("/app/{name}", web::put().to(api::plugin_handler))
-                                .route("/app/{name}", web::delete().to(api::plugin_handler))
-                                .route("/app/{name}", web::patch().to(api::plugin_handler))
+                                .route("/app/{name}", web::get().to(api::plugins::handler))
+                                .route("/app/{name}", web::post().to(api::plugins::handler))
+                                .route("/app/{name}", web::put().to(api::plugins::handler))
+                                .route("/app/{name}", web::delete().to(api::plugins::handler))
+                                .route("/app/{name}", web::patch().to(api::plugins::handler))
                                 .service(
                                     web::scope("/auth")
-                                        .service(api::login)
-                                        .service(api::logout)
-                                        .service(api::delete),
+                                        .service(api::auth::login)
+                                        .service(api::auth::logout)
+                                        .service(api::auth::delete),
                                 ),
                         )
                         .service(web::scope("/ui").service(web_ui::root)),
@@ -161,15 +159,3 @@ async fn run() -> Result<()> {
     Ok(())
 }
 
-#[actix_web::main]
-async fn main() {
-    // Defaults to info if no RUST_LOG variable is set
-    if let Err(_) = env::var("RUST_LOG") {
-        env::set_var("RUST_LOG", "info");
-    }
-    env_logger::init();
-
-    if let Err(err) = run().await {
-        log::error!("{}", err);
-    }
-}

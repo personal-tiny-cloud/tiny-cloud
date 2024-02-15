@@ -11,8 +11,6 @@ actix-web = { version = "4", features = [ "secure-cookies", "openssl" ] }
 actix-session = { version = "0.9", features = [ "cookie-session" ] }
 actix-identity = "0.7"
 openssl = "0.10"
-log = "0.4"
-env_logger = "0.11"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_yaml = "0.9"
 serde_json = "1"
@@ -25,13 +23,28 @@ rand_core = "0.6"
 zeroize = { version = "1.6", features = [ "zeroize_derive" ] }
 rpassword = "7"
 maud = { version = "0.26", features = [ "actix-web" ] }
-tcloud-library = { path = "../tcloud-library" }
+async-sqlite = "0.2"
+mutually_exclusive_features = "0.1"
+
+# Logging
+log = "0.4"
+simplelog = { version = "0.12", optional = true }
+syslog = { version = "6", optional = true }
+systemd-journal-logger = { version = "2", optional = true }
 
 # Plugins
+tcloud-library = { path = "../tcloud-library" }
 tcloud-archive = { path = "../tcloud-archive", optional = true }
 
 [features]
-default = [ "archive" ]
+default = [ "archive", "normal-log" ]
+
+# Logging
+normal-log = [ "dep:simplelog" ]
+syslog = [ "dep:syslog" ]
+systemd-log = [ "dep:systemd-journal-logger" ]
+
+# Plugins
 archive = [ "dep:tcloud-archive" ]
 
 [build-dependencies]

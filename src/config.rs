@@ -30,10 +30,20 @@ pub struct Registration {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+pub struct Logging {
+    pub log_level: String,
+    #[cfg(feature = "normal-log")]
+    pub terminal: bool,
+    #[cfg(feature = "normal-log")]
+    pub file: Option<String>,
+}
+
+#[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Config {
     pub server_name: String,
     pub description: String,
     pub server: Server,
+    pub logging: Logging,
     pub tls: Option<Tls>,
     pub registration: Option<Registration>,
     pub max_account_storage_bytes: usize,
@@ -66,6 +76,22 @@ impl Config {
                 host: "127.0.0.1".into(),
                 port: 80,
                 workers: num_cpus::get(),
+            },
+            logging: {
+                #[cfg(feature = "normal-log")]
+                {
+                    Logging {
+                        log_level: "warn".into(),
+                        terminal: true,
+                        file: None,
+                    }
+                }
+                #[cfg(not(feature = "normal-log"))]
+                {
+                    Logging {
+                        log_level: "warn".into(),
+                    }
+                }
             },
             tls: None,
             registration: Some(Registration {
