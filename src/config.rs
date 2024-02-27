@@ -1,5 +1,5 @@
+use crate::config;
 use anyhow::{Context, Result};
-use openssl::ssl::{SslAcceptor, SslAcceptorBuilder, SslFiletype, SslMethod};
 use serde::{Deserialize, Serialize};
 use std::env::current_exe;
 use std::path::Path;
@@ -17,6 +17,7 @@ pub struct Server {
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
+#[cfg(not(feature = "no-tls"))]
 pub struct Tls {
     pub privkey_path: String,
     pub cert_path: String,
@@ -24,8 +25,8 @@ pub struct Tls {
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
 pub struct Registration {
-    pub token: bool,
-    pub token_duration_seconds: usize,
+    pub token_duration_seconds: u64,
+    pub token_size: u8,
     pub max_accounts: usize,
 }
 
@@ -42,9 +43,11 @@ pub struct Logging {
 pub struct Config {
     pub server_name: String,
     pub description: String,
+    pub url_prefix: String,
     pub server: Server,
     pub logging: Logging,
-    pub tls: Option<Tls>,
+    #[cfg(not(feature = "no-tls"))]
+    pub tls: Tls,
     pub registration: Option<Registration>,
     pub max_account_storage_bytes: usize,
     pub data_directory: String,
@@ -72,6 +75,7 @@ impl Config {
         Ok(Self {
             description: env!("CARGO_PKG_DESCRIPTION").to_string(),
             server_name: "Tiny Cloud".into(),
+            url_prefix: "tcloud".into(),
             server: Server {
                 host: "127.0.0.1".into(),
                 port: 80,
@@ -81,7 +85,7 @@ impl Config {
                 #[cfg(feature = "normal-log")]
                 {
                     Logging {
-                        log_level: "warn".into(),
+                        log_level: "info".into(),
                         terminal: true,
                         file: None,
                     }
@@ -93,10 +97,14 @@ impl Config {
                     }
                 }
             },
-            tls: None,
+            #[cfg(any(feature = "rustls", feature = "openssl", feature = "openssl-bundled"))]
+            tls: Tls {
+                privkey_path: format!("{}/privkey.pem", get_exec_dir()?),
+                cert_path: format!("{}/cert.pem", get_exec_dir()?),
+            },
             registration: Some(Registration {
-                token: true,
-                token_duration_seconds: 3600,
+                token_size: 16,
+                token_duration_seconds: 24 * 60 * 60,
                 max_accounts: 50,
             }),
             max_account_storage_bytes: 10485750,
@@ -105,7 +113,7 @@ impl Config {
             login_deadline_minutes: Some(43200),
             visit_deadline_minutes: Some(21600),
             session_secret_key_path: format!("{}/secret.key", get_exec_dir()?),
-            max_username_size: 20,
+            max_username_size: 10,
             min_username_size: 3,
             max_passwd_size: 256,
             min_passwd_size: 9,
@@ -142,14 +150,11 @@ pub async fn write_default() -> Result<()> {
     Ok(())
 }
 
-pub fn get_openssl_config(tls: &Tls) -> Result<SslAcceptorBuilder> {
-    let mut builder = SslAcceptor::mozilla_intermediate(SslMethod::tls())
-        .context("Failed to start openssl acceptor")?;
-    builder
-        .set_private_key_file(&tls.privkey_path, SslFiletype::PEM)
-        .context("Failed to set private key file, is the path correct?")?;
-    builder
-        .set_certificate_chain_file(&tls.cert_path)
-        .context("Failed to set certificate file, is the path correct?")?;
-    Ok(builder)
+pub fn make_url(url: &str) -> String {
+    let prefix = config!(url_prefix);
+    if prefix.is_empty() {
+        url.into()
+    } else {
+        format!("/{}{}", prefix, url)
+    }
 }

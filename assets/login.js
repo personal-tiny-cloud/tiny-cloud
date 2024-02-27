@@ -1,3 +1,15 @@
+"use strict";
+try {
+	let _prefix = document.querySelector('meta[name="tcloud-prefix"]').content;
+	if (_prefix == "") {
+		var prefix = "/";
+	} else {
+		var prefix = "/" + _prefix + "/";
+	}
+} catch (e) {
+	var prefix = "/";
+}
+
 function setErrorMsg(string) {
 	var error_msg = document.getElementById("errormsg");
 	error_msg.innerHTML = string;
@@ -5,7 +17,7 @@ function setErrorMsg(string) {
 
 async function submit(form) {
 	var formData = new FormData(form);
-	let response = await fetch('/tcloud/api/auth/login', {
+	let response = await fetch(prefix + 'api/auth/login', {
 		method: "POST",
 		mode: "same-origin",
 		cache: "no-cache",
@@ -24,14 +36,11 @@ async function submit(form) {
 			case 'BadCredentials':
 				setErrorMsg(errInfo.message + '<br>Check user and password and try again.');
 				break;
-			case 'BadPassword':
-				setErrorMsg(errInfo.message + '<br>Have you inserted your password correctly?');
+			case 'InternalError':
+				setErrorMsg(errInfo.message + '<br>Internal server error occurred... Check server logs if this persits');
 				break;
-			case 'UserNotFound':
-				setErrorMsg(errInfo.message + '<br>Have you typed your user correctly?');
-				break;
-			case 'InternalServerError':
-				setErrorMsg(errInfo.message + '<br>This was not expected... Check server logs if this persits');
+			case 'InvalidCredentials':
+				setErrorMsg(errInfo.message + '<br>Invalid credentials. Cannot login');
 				break;
 			default:
 				setErrorMsg('Unexpected error... This may be a bug, check logs and open an issue if this persists');

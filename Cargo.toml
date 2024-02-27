@@ -7,24 +7,25 @@ edition = "2021"
 
 [dependencies]
 tokio = { version = "1.29", features = [ "sync", "fs", "parking_lot" ] }
-actix-web = { version = "4", features = [ "secure-cookies", "openssl" ] }
+actix-web = { version = "4", features = [ "secure-cookies" ] }
 actix-session = { version = "0.9", features = [ "cookie-session" ] }
 actix-identity = "0.7"
-openssl = "0.10"
 serde = { version = "1.0", features = [ "derive" ] }
 serde_yaml = "0.9"
 serde_json = "1"
 clap = { version = "4", features = [ "derive" ] }
-anyhow = "1"
 num_cpus = "1"
 thiserror = "1"
 argon2 = "0.5"
-rand_core = "0.6"
+rand = "0.8"
 zeroize = { version = "1.6", features = [ "zeroize_derive" ] }
 rpassword = "7"
 maud = { version = "0.26", features = [ "actix-web" ] }
-async-sqlite = "0.2"
+async-sqlite = { version = "0.2", default-features = false }
 mutually_exclusive_features = "0.1"
+
+# Common library
+tcloud-library = { path = "../tcloud-library" }
 
 # Logging
 log = "0.4"
@@ -32,22 +33,39 @@ simplelog = { version = "0.12", optional = true }
 syslog = { version = "6", optional = true }
 systemd-journal-logger = { version = "2", optional = true }
 
+# TLS
+openssl = { version = "0.10", optional = true }
+rustls = { version = "0.21", optional = true }
+rustls-pemfile = { version = "1", optional = true }
+
 # Plugins
-tcloud-library = { path = "../tcloud-library" }
 tcloud-archive = { path = "../tcloud-archive", optional = true }
 
 [features]
-default = [ "archive", "normal-log" ]
+default = [ "normal-log", "openssl", "archive" ]
 
 # Logging
 normal-log = [ "dep:simplelog" ]
 syslog = [ "dep:syslog" ]
 systemd-log = [ "dep:systemd-journal-logger" ]
 
+# TLS
+no-tls = []
+openssl = [ "dep:openssl", "actix-web/openssl" ]
+openssl-bundled = [ "openssl", "openssl/vendored" ]
+rustls = [ "dep:rustls-pemfile", "dep:rustls", "actix-web/rustls-0_21" ]
+
+# Database
+sqlite-bundled = [ "async-sqlite/bundled" ]
+
+# Authentication
+totp-auth = []
+
 # Plugins
 archive = [ "dep:tcloud-archive" ]
 
 [build-dependencies]
-minify-js = "0.6.0"
+# Keeping it to lower version until Panic: "called Option::unwrap() on a None value" (issue #18 of this library) gets fixed
+minify-js = "0.5.6"
 lightningcss = "1.0.0-alpha.52"
 

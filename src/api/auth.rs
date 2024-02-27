@@ -16,16 +16,12 @@ pub struct Login {
 pub struct Register {
     user: String,
     password: String,
-    token: Option<String>,
+    token: String,
 }
 
 /// Registers new user and starts a new session
 #[post("/register")]
-pub async fn register(
-    req: HttpRequest,
-    credentials: web::Json<Register>,
-    tokens: web::Data<auth::Tokens>,
-) -> impl Responder {
+pub async fn register(req: HttpRequest, credentials: web::Json<Register>) -> impl Responder {
     if let Some(registration) = config!(registration) {
         let credentials = credentials.into_inner();
         if registration.token {
@@ -67,7 +63,7 @@ pub async fn logout(user: Identity) -> impl Responder {
 pub async fn delete(user: Identity) -> impl Responder {
     let username = get_user!(user.id());
     user.logout();
-    if let Err(err) = auth::delete(username).await {
+    if let Err(err) = auth::database::delete_user(username).await {
         handle_error!(err);
     } else {
         HttpResponse::Ok().body("")

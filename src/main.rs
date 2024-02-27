@@ -3,6 +3,8 @@ mod auth;
 mod config;
 mod logging;
 mod plugins;
+#[cfg(not(feature = "no-tls"))]
+mod tls;
 mod webui;
 #[macro_use]
 mod macros;
@@ -12,11 +14,9 @@ use actix_web::{
     cookie::{time::Duration, Key, SameSite},
     middleware, web, App, HttpServer,
 };
-use anyhow::{Context, Result};
 use clap::Parser;
-use std::io::{self, Write};
 use tokio::fs;
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -32,130 +32,130 @@ struct Args {
     create_user: bool,
 }
 
+async fn server() -> Result<(), String> {
+    let secret_key = Zeroizing::new(
+        fs::read(config!(session_secret_key_path))
+            .await
+            .map_err(|e| format!("Couldn't read secret key file: {}", e))?,
+    );
+    if secret_key.len() < 64 {
+        return Err("Session secret key must be 64 bytes long".into());
+    }
+    let secret_key = Key::from(&secret_key[..64]);
+
+    let server = HttpServer::new(move || {
+        App::new()
+            .wrap(middleware::Logger::default())
+            .wrap(middleware::NormalizePath::trim())
+            .wrap(
+                IdentityMiddleware::builder()
+                    .login_deadline(
+                        config!(login_deadline_minutes)
+                            .map(|d| std::time::Duration::from_secs(d * 60)),
+                    )
+                    .visit_deadline(
+                        config!(visit_deadline_minutes)
+                            .map(|d| std::time::Duration::from_secs(d * 60)),
+                    )
+                    .build(),
+            )
+            .wrap({
+                let session_middleware =
+                    SessionMiddleware::builder(CookieSessionStore::default(), secret_key.clone())
+                        .cookie_name("auth".to_owned())
+                        .cookie_http_only(true)
+                        .cookie_same_site(SameSite::Strict)
+                        .session_lifecycle(PersistentSession::default().session_ttl(
+                            Duration::minutes((*config!(cookie_duration_minutes)).into()),
+                        ));
+                if cfg!(not(feature = "no-tls")) {
+                    session_middleware.build()
+                } else {
+                    session_middleware.cookie_secure(false).build()
+                }
+            })
+            .service(web::redirect("/", &config::make_url("/ui")))
+            .service(web::scope(&config::make_url("/ui")).service(webui::root))
+            .service(
+                web::scope(&config::make_url("/api"))
+                    .service(api::info)
+                    .route("/app/{name}", web::get().to(api::plugins::handler))
+                    .route("/app/{name}", web::post().to(api::plugins::handler))
+                    .route("/app/{name}", web::put().to(api::plugins::handler))
+                    .route("/app/{name}", web::delete().to(api::plugins::handler))
+                    .route("/app/{name}", web::patch().to(api::plugins::handler))
+                    .service(
+                        web::scope("/auth")
+                            .service(api::auth::login)
+                            .service(api::auth::logout)
+                            .service(api::auth::delete),
+                    ),
+            )
+    });
+
+    #[cfg(any(feature = "openssl", feature = "openssl-bundled"))]
+    {
+        server
+            .bind_openssl(
+                format!("{}:{}", config!(server.host), config!(server.port)),
+                tls::get_openssl_config(config!(tls))?,
+            )
+            .map_err(|e| format!("Couldn't bind server with TLS (openssl): {}", e))?;
+    }
+
+    #[cfg(feature = "rustls")]
+    {
+        server
+            .bind_rustls_021(
+                format!("{}:{}", config!(server.host), config!(server.port)),
+                tls::get_rustls_config(config!(tls))?,
+            )
+            .context("Couldn't bind server with TLS (rustls)")?;
+    }
+
+    #[cfg(feature = "no-tls")]
+    {
+        server
+            .bind(format!("{}:{}", config!(server.host), config!(server.port)))
+            .context("Couldn't bind server")?;
+    }
+    server.workers(*config!(server.workers));
+
+    plugins::init()?;
+
+    log::info!("Starting server...");
+    server
+        .run()
+        .await
+        .map_err(|e| format!("Error while running: {}", e))?;
+    Ok(())
+}
+
 #[actix_web::main]
-async fn main() -> Result<()> {
+async fn main() {
     let args = Args::parse();
 
     if args.write_default {
         config::write_default()
             .await
             .context("Couldn't write default config")?;
-        return Ok(());
+        return;
     }
 
     config::open(args.config)
         .await
         .context("Couldn't open config")?;
 
-    auth::init_db().await?;
-
     if args.create_user {
-        let mut user = String::new();
-        print!("User: ");
-        io::stdout().flush().unwrap();
-        io::stdin()
-            .read_line(&mut user)
-            .context("Failed to read user")?;
-        let user = user.trim().to_string();
-        let mut password = rpassword::prompt_password("Password: ")
-            .context("Failed to read password")?
-            .into_bytes();
-        auth::set_user(user, &password)
-            .await
-            .map_err(|e| anyhow::format_err!("{}", e))?;
-        password.zeroize();
-        return Ok(());
+        if let Err(err) = auth::cli_create_user().await {
+            eprintln!("Couldn't create user: {}", err);
+        }
+        return;
     }
 
-    let server = {
-        let secret_key = Zeroizing::new(
-            fs::read(config!(session_secret_key_path))
-                .await
-                .context("Couldn't read secret key file")?,
-        );
-        if secret_key.len() < 64 {
-            return Err(anyhow::format_err!(
-                "Session secret key must be 64 bytes long"
-            ));
-        }
-        let secret_key = Key::from(&secret_key[..64]);
+    logging::init_logging();
 
-        let server = HttpServer::new(move || {
-            App::new()
-                .wrap(middleware::Logger::default())
-                .wrap(middleware::NormalizePath::trim())
-                .wrap(
-                    IdentityMiddleware::builder()
-                        .login_deadline(
-                            config!(login_deadline_minutes)
-                                .map(|d| std::time::Duration::from_secs(d * 60)),
-                        )
-                        .visit_deadline(
-                            config!(visit_deadline_minutes)
-                                .map(|d| std::time::Duration::from_secs(d * 60)),
-                        )
-                        .build(),
-                )
-                .wrap({
-                    let session_middleware = SessionMiddleware::builder(
-                        CookieSessionStore::default(),
-                        secret_key.clone(),
-                    )
-                    .cookie_name("auth".to_owned())
-                    .cookie_http_only(true)
-                    .cookie_same_site(SameSite::Strict)
-                    .session_lifecycle(
-                        PersistentSession::default().session_ttl(Duration::minutes(
-                            (*config!(cookie_duration_minutes)).into(),
-                        )),
-                    );
-                    if cfg!(debug_assertions) {
-                        session_middleware.cookie_secure(false).build()
-                    } else {
-                        session_middleware.build()
-                    }
-                })
-                .service(web::redirect("/", "/tcloud/ui"))
-                .service(
-                    web::scope("/tcloud")
-                        .service(
-                            web::scope("/api")
-                                .service(api::info)
-                                .route("/app/{name}", web::get().to(api::plugins::handler))
-                                .route("/app/{name}", web::post().to(api::plugins::handler))
-                                .route("/app/{name}", web::put().to(api::plugins::handler))
-                                .route("/app/{name}", web::delete().to(api::plugins::handler))
-                                .route("/app/{name}", web::patch().to(api::plugins::handler))
-                                .service(
-                                    web::scope("/auth")
-                                        .service(api::auth::login)
-                                        .service(api::auth::logout)
-                                        .service(api::auth::delete),
-                                ),
-                        )
-                        .service(web::scope("/ui").service(web_ui::root)),
-                )
-        });
-
-        let server = if let Some(tls) = config!(tls) {
-            server
-                .bind_openssl(
-                    format!("{}:{}", config!(server.host), config!(server.port)),
-                    config::get_openssl_config(tls)?,
-                )
-                .context("Couldn't bind server with TLS")?
-        } else {
-            server
-                .bind(format!("{}:{}", config!(server.host), config!(server.port)))
-                .context("Couldn't bind server")?
-        };
-        server.workers(*config!(server.workers))
-    };
-
-    plugins::init()?;
-
-    log::info!("Starting server...");
-    server.run().await?;
-    Ok(())
+    if let Err(err) = server().await {
+        log::error!("Server crashed: {}", err);
+    }
 }
-
