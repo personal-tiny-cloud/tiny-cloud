@@ -1,5 +1,4 @@
 use crate::config;
-use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::env::current_exe;
 use std::path::Path;
@@ -61,17 +60,17 @@ pub struct Config {
     pub min_passwd_size: u16,
 }
 
-fn get_exec_dir() -> Result<String> {
-    let mut path = current_exe().context("Failed to get executable's path")?;
+fn get_exec_dir() -> Result<String, String> {
+    let mut path = current_exe().map_err(|e| format!("Failed to get executable's path: {}", e))?;
     path.pop();
     Ok(path
         .to_str()
-        .context("Failed to get executable's path")?
+        .ok_or_else(|| format!("Failed to get executable's path"))?
         .to_string())
 }
 
 impl Config {
-    pub fn default() -> Result<Self> {
+    pub fn default() -> Result<Self, String> {
         Ok(Self {
             description: env!("CARGO_PKG_DESCRIPTION").to_string(),
             server_name: "Tiny Cloud".into(),
@@ -121,32 +120,33 @@ impl Config {
     }
 }
 
-pub async fn open<P: AsRef<Path>>(path: P) -> Result<()> {
+pub async fn open<P: AsRef<Path>>(path: P) -> Result<(), String> {
     let mut file = File::open(path)
         .await
-        .context("Failed to open config file")?;
+        .map_err(|e| format!("Failed to open config file: {}", e))?;
     let mut config = String::new();
     file.read_to_string(&mut config)
         .await
-        .context("Failed to read config file")?;
+        .map_err(|e| format!("Failed to read config file: {}", e))?;
     CONFIG
-        .set(serde_yaml::from_str(&config).context("Failed to parse config")?)
+        .set(serde_yaml::from_str(&config).map_err(|e| format!("Failed to read config: {}", e))?)
         .expect("Config has already been opened");
     Ok(())
 }
 
-pub async fn write_default() -> Result<()> {
-    let mut path = current_exe().context("Failed to get executable's path")?;
+pub async fn write_default() -> Result<(), String> {
+    let mut path = current_exe().map_err(|e| format!("Failed to get executable's path: {}", e))?;
     path.pop();
     path.push("default.yaml");
     let mut file = File::create(path)
         .await
-        .context("Failed to create config file")?;
+        .map_err(|e| format!("Failed to create config file: {}", e))?;
     let default = Config::default()?;
-    let default = serde_yaml::to_string(&default).context("Failed to serialize config")?;
+    let default = serde_yaml::to_string(&default)
+        .map_err(|e| format!("Failed to serialize config: {}", e))?;
     file.write_all(&mut default.as_bytes())
         .await
-        .context("Failed to write config")?;
+        .map_err(|e| format!("Failed to write config: {}", e))?;
     Ok(())
 }
 

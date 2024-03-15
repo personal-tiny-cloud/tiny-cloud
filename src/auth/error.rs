@@ -1,3 +1,5 @@
+use actix_web::{http::StatusCode, HttpResponse};
+use serde_json::json;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -27,6 +29,33 @@ pub enum AuthError {
 }
 
 impl AuthError {
+    pub fn name(&self) -> String {
+        match self {
+            Self::BadCredentials(_) => "BadCredentials",
+            Self::InvalidCredentials => "InvalidCredentials",
+            Self::InvalidRegCredentials => "InvalidRegCredentials",
+            Self::InternalError(_) => "InternalError",
+        }
+        .into()
+    }
+
+    pub fn to_response(&self) -> HttpResponse {
+        if let Self::InternalError(err) = self {
+            log::error!("An internal server error occurred during authentication: {err}");
+        }
+        HttpResponse::build(
+            StatusCode::from_u16(self.http_code())
+                .expect("Invalid http code returned by http_code(). This is a bug"),
+        )
+        .body(
+            json!({
+                "error": self.name(),
+                "msg": self.to_string()
+            })
+            .to_string(),
+        )
+    }
+
     pub fn http_code(&self) -> u16 {
         match self {
             Self::BadCredentials(_) => 400,

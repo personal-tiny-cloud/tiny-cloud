@@ -34,13 +34,13 @@ async function submit(form) {
 		let errInfo = await response.json();
 		switch (errInfo.error) {
 			case 'BadCredentials':
-				setErrorMsg(errInfo.message + '<br>Check user and password and try again.');
+				setErrorMsg(errInfo.msg + '<br>Check user and password and try again.');
 				break;
 			case 'InternalError':
-				setErrorMsg(errInfo.message + '<br>Internal server error occurred... Check server logs if this persits');
+				setErrorMsg(errInfo.msg + '<br>Internal server error occurred... Check server logs if this persits');
 				break;
 			case 'InvalidCredentials':
-				setErrorMsg(errInfo.message + '<br>Invalid credentials. Cannot login');
+				setErrorMsg(errInfo.msg + '<br>Invalid credentials. Cannot login');
 				break;
 			default:
 				setErrorMsg('Unexpected error... This may be a bug, check logs and open an issue if this persists');

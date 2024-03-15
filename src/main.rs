@@ -12,7 +12,9 @@ use actix_identity::IdentityMiddleware;
 use actix_session::{config::PersistentSession, storage::CookieSessionStore, SessionMiddleware};
 use actix_web::{
     cookie::{time::Duration, Key, SameSite},
-    middleware, web, App, HttpServer,
+    middleware,
+    web::{self, Data},
+    App, HttpServer,
 };
 use clap::Parser;
 use tokio::fs;
@@ -36,12 +38,18 @@ async fn server() -> Result<(), String> {
     let secret_key = Zeroizing::new(
         fs::read(config!(session_secret_key_path))
             .await
-            .map_err(|e| format!("Couldn't read secret key file: {}", e))?,
+            .map_err(|e| format!("Failed to read secret key file: {e}"))?,
     );
     if secret_key.len() < 64 {
         return Err("Session secret key must be 64 bytes long".into());
     }
     let secret_key = Key::from(&secret_key[..64]);
+
+    let database = Data::new(
+        auth::database::init_db()
+            .await
+            .map_err(|e| format!("Failed to initialize Database: {e}"))?,
+    );
 
     let server = HttpServer::new(move || {
         App::new()
@@ -74,7 +82,8 @@ async fn server() -> Result<(), String> {
                     session_middleware.cookie_secure(false).build()
                 }
             })
-            .service(web::redirect("/", &config::make_url("/ui")))
+            .app_data(Data::clone(&database))
+            .service(web::redirect("/", config::make_url("/ui")))
             .service(web::scope(&config::make_url("/ui")).service(webui::root))
             .service(
                 web::scope(&config::make_url("/api"))
@@ -93,41 +102,44 @@ async fn server() -> Result<(), String> {
             )
     });
 
-    #[cfg(any(feature = "openssl", feature = "openssl-bundled"))]
-    {
-        server
-            .bind_openssl(
-                format!("{}:{}", config!(server.host), config!(server.port)),
-                tls::get_openssl_config(config!(tls))?,
-            )
-            .map_err(|e| format!("Couldn't bind server with TLS (openssl): {}", e))?;
-    }
+    // Setting TLS
+    let server = {
+        #[cfg(any(feature = "openssl", feature = "openssl-bundled"))]
+        {
+            server
+                .bind_openssl(
+                    format!("{}:{}", config!(server.host), config!(server.port)),
+                    tls::get_openssl_config(config!(tls))?,
+                )
+                .map_err(|e| format!("Couldn't bind server with TLS (openssl): {e}"))?
+        }
 
-    #[cfg(feature = "rustls")]
-    {
-        server
-            .bind_rustls_021(
-                format!("{}:{}", config!(server.host), config!(server.port)),
-                tls::get_rustls_config(config!(tls))?,
-            )
-            .context("Couldn't bind server with TLS (rustls)")?;
-    }
+        #[cfg(feature = "rustls")]
+        {
+            server
+                .bind_rustls_022(
+                    format!("{}:{}", config!(server.host), config!(server.port)),
+                    tls::get_rustls_config(config!(tls))?,
+                )
+                .map_err(|e| format!("Failed to bind server with TLS (rustls): {e}"))?
+        }
 
-    #[cfg(feature = "no-tls")]
-    {
-        server
-            .bind(format!("{}:{}", config!(server.host), config!(server.port)))
-            .context("Couldn't bind server")?;
-    }
-    server.workers(*config!(server.workers));
+        #[cfg(feature = "no-tls")]
+        {
+            server
+                .bind(format!("{}:{}", config!(server.host), config!(server.port)))
+                .map_err(|e| format!("Failed to bind server: {e}"))?
+        }
+    };
 
-    plugins::init()?;
+    plugins::init();
 
     log::info!("Starting server...");
     server
+        .workers(*config!(server.workers))
         .run()
         .await
-        .map_err(|e| format!("Error while running: {}", e))?;
+        .map_err(|e| format!("Error while running: {e}"))?;
     Ok(())
 }
 
@@ -136,26 +148,30 @@ async fn main() {
     let args = Args::parse();
 
     if args.write_default {
-        config::write_default()
-            .await
-            .context("Couldn't write default config")?;
-        return;
-    }
-
-    config::open(args.config)
-        .await
-        .context("Couldn't open config")?;
-
-    if args.create_user {
-        if let Err(err) = auth::cli_create_user().await {
-            eprintln!("Couldn't create user: {}", err);
+        if let Err(e) = config::write_default().await {
+            eprintln!("{e}");
         }
         return;
     }
 
-    logging::init_logging();
+    if let Err(e) = config::open(args.config).await {
+        eprintln!("Failed to open config: {e}");
+        return;
+    }
 
-    if let Err(err) = server().await {
-        log::error!("Server crashed: {}", err);
+    if args.create_user {
+        if let Err(e) = auth::cli::create_user().await {
+            eprintln!("Failed to create user: {e}");
+        }
+        return;
+    }
+
+    if let Err(e) = logging::init_logging() {
+        eprintln!("Failed to initialize logging: {e}");
+        return;
+    }
+
+    if let Err(e) = server().await {
+        log::error!("Server crashed: {e}");
     }
 }

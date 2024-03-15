@@ -1,8 +1,8 @@
 use crate::auth;
-use crate::config;
 use actix_identity::error::GetIdentityError;
 use actix_identity::Identity;
 use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use async_sqlite::Pool;
 use serde::Deserialize;
 use zeroize::Zeroizing;
 
@@ -20,6 +20,7 @@ pub struct Register {
 }
 
 /// Registers new user and starts a new session
+/*
 #[post("/register")]
 pub async fn register(req: HttpRequest, credentials: web::Json<Register>) -> impl Responder {
     if let Some(registration) = config!(registration) {
@@ -31,14 +32,19 @@ pub async fn register(req: HttpRequest, credentials: web::Json<Register>) -> imp
     } else {
         HttpResponse::NotFound()
     }
-}
+}*/
 
 /// Logins and starts a new session
 #[post("/login")]
-pub async fn login(req: HttpRequest, login: web::Json<Login>) -> impl Responder {
+pub async fn login(
+    req: HttpRequest,
+    login: web::Json<Login>,
+    pool: web::Data<Pool>,
+) -> impl Responder {
     let login = login.into_inner();
+    let pool = pool.into_inner();
     let password = Zeroizing::new(login.password.into_bytes());
-    match auth::check_passwd(&login.user, &password).await {
+    match auth::check(&pool, &login.user, &password).await {
         Ok(_) => {
             if let Err(err) = Identity::login(&req.extensions(), login.user) {
                 log::error!("Failed to build Identity: {}", err);
@@ -47,7 +53,7 @@ pub async fn login(req: HttpRequest, login: web::Json<Login>) -> impl Responder 
             }
             HttpResponse::Ok().body("")
         }
-        Err(err) => handle_error!(err),
+        Err(err) => err.to_response(),
     }
 }
 
@@ -58,13 +64,14 @@ pub async fn logout(user: Identity) -> impl Responder {
     HttpResponse::Ok()
 }
 
-/// Deletes an user's own account
+// Deletes an user's own account
 #[get("/delete")]
-pub async fn delete(user: Identity) -> impl Responder {
+pub async fn delete(user: Identity, pool: web::Data<Pool>) -> impl Responder {
     let username = get_user!(user.id());
+    let pool = pool.into_inner();
     user.logout();
-    if let Err(err) = auth::database::delete_user(username).await {
-        handle_error!(err);
+    if let Err(err) = auth::delete_user(&pool, username).await {
+        err.to_response()
     } else {
         HttpResponse::Ok().body("")
     }

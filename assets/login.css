@@ -1,27 +1,36 @@
 body {
 	margin: auto;
 	text-align: center;
+	color: white;
 	font-family: Sans-serif;
 }
 
 #title {
+	font-weight: bold;
 	font-size: 400%;
-	padding: 20px 30px;
-	border-color: blue;
-	border-width: 5px;
-	border-radius: 0px 0px 100px 100px;
-	border-style: none solid solid solid;
-	width: fit-content;
-	width: -webkit-fit-content;
-	width: -moz-fit-content;
+	text-shadow: 2px 2px 10px #31d9ff;
 }
 
 #version {
-	font-size: 150%;
+	font-size: 190%;
 }
 
 #description {
-	font-size: 200%;
+	font-size: 170%;
 	color: grey;
+}
+
+#login {
+	font-size: 150%;
+}
+
+#user, #password {
+	width: 25%;
+	padding-top: 0.9%;
+	padding-right: 1%;
+	padding-bottom: 0.9%;
+	padding-left: 1%;
+	border-radius: 10px;
+	font-size: 100%;
 }
 

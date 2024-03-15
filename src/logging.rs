@@ -26,7 +26,7 @@ fn get_filter(level: &str) -> LevelFilter {
 mutually_exclusive_features::exactly_one_of!("normal-log", "syslog", "systemd-log");
 
 #[cfg(feature = "normal-log")]
-pub fn init_logging() {
+pub fn init_logging() -> Result<(), String> {
     let level_filter = get_filter(config!(logging.log_level));
     if let Some(file) = config!(logging.file) {
         CombinedLogger::init(vec![
@@ -47,9 +47,10 @@ pub fn init_logging() {
                     .append(true)
                     .create(true)
                     .open(file)
-                    .expect(&format!("Failed to open log file: {}", file)),
+                    .map_err(|e| format!("Failed to open log file `{file}`: {e}"))?,
             ),
-        ]);
+        ])
+        .map_err(|e| format!("Failed to initialize combined logger: {e}"))?;
     } else {
         if *config!(logging.terminal) {
             TermLogger::init(
@@ -57,25 +58,31 @@ pub fn init_logging() {
                 Config::default(),
                 TerminalMode::Mixed,
                 ColorChoice::Auto,
-            );
+            )
+            .map_err(|e| format!("Failed to initialize terminal logger: {e}"))?;
         } else {
-            SimpleLogger::init(level_filter, Config::default());
+            SimpleLogger::init(level_filter, Config::default())
+                .map_err(|e| format!("Failed to initialize simple logger: {e}"))?;
         };
     }
+    Ok(())
 }
 
 #[cfg(feature = "syslog")]
-pub async fn init_logging() {
-    let logger = syslog::unix(Formatter3164::default()).expect("Impossible to connect to syslog");
+pub async fn init_logging() -> Result<(), String> {
+    let logger = syslog::unix(Formatter3164::default())
+        .map_err(|e| format!("Failed to connect to syslog: {e}"))?;
     log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
         .map(|()| log::set_max_level(get_filter(config!(logging.log_level))));
+    Ok(())
 }
 
 #[cfg(feature = "systemd-log")]
-pub async fn init_logging() {
+pub async fn init_logging() -> Result<(), String> {
     JournalLog::new()
         .expect("Failed to create journal log")
         .install()
-        .expect("Failed to set up journal log");
+        .map_err(|e| format!("Failed to set up journal log: {e}"))?;
     log::set_max_level(get_filter(config!(logging.log_level)));
+    Ok(())
 }
