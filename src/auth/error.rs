@@ -25,7 +25,7 @@ pub enum AuthError {
     #[error("Invalid credentials")]
     InvalidCredentials,
     #[error("Invalid registration credentials")]
-    InvalidRegCredentials,
+    InvalidRegCredentials(String),
 }
 
 impl AuthError {
@@ -33,7 +33,7 @@ impl AuthError {
         match self {
             Self::BadCredentials(_) => "BadCredentials",
             Self::InvalidCredentials => "InvalidCredentials",
-            Self::InvalidRegCredentials => "InvalidRegCredentials",
+            Self::InvalidRegCredentials(_) => "InvalidRegCredentials",
             Self::InternalError(_) => "InternalError",
         }
         .into()
@@ -60,7 +60,7 @@ impl AuthError {
         match self {
             Self::BadCredentials(_) => 400,
             Self::InvalidCredentials => 401,
-            Self::InvalidRegCredentials => 401,
+            Self::InvalidRegCredentials(_) => 401,
             Self::InternalError(_) => 500,
         }
     }

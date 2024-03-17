@@ -5,6 +5,7 @@ mod logging;
 mod plugins;
 #[cfg(not(feature = "no-tls"))]
 mod tls;
+mod utils;
 mod webui;
 #[macro_use]
 mod macros;
@@ -16,6 +17,7 @@ use actix_web::{
     web::{self, Data},
     App, HttpServer,
 };
+use async_sqlite::Pool;
 use clap::Parser;
 use tokio::fs;
 use zeroize::Zeroizing;
@@ -34,23 +36,8 @@ struct Args {
     create_user: bool,
 }
 
-async fn server() -> Result<(), String> {
-    let secret_key = Zeroizing::new(
-        fs::read(config!(session_secret_key_path))
-            .await
-            .map_err(|e| format!("Failed to read secret key file: {e}"))?,
-    );
-    if secret_key.len() < 64 {
-        return Err("Session secret key must be 64 bytes long".into());
-    }
-    let secret_key = Key::from(&secret_key[..64]);
-
-    let database = Data::new(
-        auth::database::init_db()
-            .await
-            .map_err(|e| format!("Failed to initialize Database: {e}"))?,
-    );
-
+async fn server(secret_key: Key, database: Pool) -> Result<(), String> {
+    let database = Data::new(database);
     let server = HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
@@ -83,10 +70,10 @@ async fn server() -> Result<(), String> {
                 }
             })
             .app_data(Data::clone(&database))
-            .service(web::redirect("/", config::make_url("/ui")))
-            .service(web::scope(&config::make_url("/ui")).service(webui::root))
+            .service(web::redirect("/", utils::make_url("/ui")))
+            .service(web::scope(&utils::make_url("/ui")).service(webui::root))
             .service(
-                web::scope(&config::make_url("/api"))
+                web::scope(&utils::make_url("/api"))
                     .service(api::info)
                     .route("/app/{name}", web::get().to(api::plugins::handler))
                     .route("/app/{name}", web::post().to(api::plugins::handler))
@@ -117,7 +104,7 @@ async fn server() -> Result<(), String> {
         #[cfg(feature = "rustls")]
         {
             server
-                .bind_rustls_022(
+                .bind_rustls_0_22(
                     format!("{}:{}", config!(server.host), config!(server.port)),
                     tls::get_rustls_config(config!(tls))?,
                 )
@@ -155,7 +142,7 @@ async fn main() {
     }
 
     if let Err(e) = config::open(args.config).await {
-        eprintln!("Failed to open config: {e}");
+        eprintln!("{e}");
         return;
     }
 
@@ -171,7 +158,31 @@ async fn main() {
         return;
     }
 
-    if let Err(e) = server().await {
+    let secret_key = {
+        let path = config!(session_secret_key_path);
+        match fs::read(path).await {
+            Ok(b) => Zeroizing::new(b),
+            Err(e) => {
+                eprintln!("Failed to read secret key file `{path}`: {e}");
+                return;
+            }
+        }
+    };
+    if secret_key.len() < 64 {
+        eprintln!("Session secret key must be 64 bytes long");
+        return;
+    }
+    let secret_key = Key::from(&secret_key[..64]);
+
+    let database = match auth::database::init_db().await {
+        Ok(pool) => pool,
+        Err(e) => {
+            eprintln!("Failed to initialize Database: {e}");
+            return;
+        }
+    };
+
+    if let Err(e) = server(secret_key, database).await {
         log::error!("Server crashed: {e}");
     }
 }

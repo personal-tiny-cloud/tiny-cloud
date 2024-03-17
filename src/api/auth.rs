@@ -1,7 +1,12 @@
-use crate::auth;
+use crate::{
+    auth::{self, error::AuthError},
+    utils::get_ip,
+};
 use actix_identity::error::GetIdentityError;
 use actix_identity::Identity;
-use actix_web::{get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder};
+use actix_web::{
+    dev::ConnectionInfo, get, post, web, HttpMessage, HttpRequest, HttpResponse, Responder,
+};
 use async_sqlite::Pool;
 use serde::Deserialize;
 use zeroize::Zeroizing;
@@ -38,6 +43,7 @@ pub async fn register(req: HttpRequest, credentials: web::Json<Register>) -> imp
 #[post("/login")]
 pub async fn login(
     req: HttpRequest,
+    conn: ConnectionInfo,
     login: web::Json<Login>,
     pool: web::Data<Pool>,
 ) -> impl Responder {
@@ -46,14 +52,25 @@ pub async fn login(
     let password = Zeroizing::new(login.password.into_bytes());
     match auth::check(&pool, &login.user, &password).await {
         Ok(_) => {
-            if let Err(err) = Identity::login(&req.extensions(), login.user) {
-                log::error!("Failed to build Identity: {}", err);
-                return HttpResponse::InternalServerError()
-                    .body("Internal server error occurred while making session");
+            if let Err(err) = Identity::login(&req.extensions(), login.user.clone()) {
+                log::error!("Failed to build Identity: {err}");
+                AuthError::InternalError("Failed to build identity during login".into())
+                    .to_response()
+            } else {
+                log::warn!("host [{}] logged in as `{}`", get_ip(&conn), login.user);
+                HttpResponse::Ok().body("")
             }
-            HttpResponse::Ok().body("")
         }
-        Err(err) => err.to_response(),
+        Err(err) => {
+            if let AuthError::InvalidCredentials = err {
+                log::warn!(
+                    "host [{}] tried to login as `{}`",
+                    get_ip(&conn),
+                    login.user
+                );
+            }
+            err.to_response()
+        }
     }
 }
 

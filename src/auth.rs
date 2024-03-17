@@ -39,6 +39,7 @@ pub async fn check(pool: &Pool, username: &String, password: &Vec<u8>) -> Result
     let hash = database::get_user(pool, username.clone())
         .await
         .map_err(|e| AuthError::InternalError(e.to_string()))?
+        .ok_or(AuthError::InvalidCredentials)?
         .pass_hash;
     hash::verify(password, &hash)
 }
@@ -54,7 +55,7 @@ pub async fn add_user(
     let passwd_hash = hash::create(password)?;
     if let Err(err) = database::add_user(pool, username, passwd_hash, is_admin).await {
         match err {
-            DBError::UserExists => Err(AuthError::InvalidRegCredentials),
+            DBError::UserExists => Err(AuthError::InvalidRegCredentials(err.to_string())),
             _ => Err(AuthError::InternalError(err.to_string())),
         }
     } else {

@@ -36,14 +36,13 @@ systemd-journal-logger = { version = "2", optional = true }
 # TLS
 openssl = { version = "0.10", optional = true }
 rustls = { version = "0.22", optional = true }
-rustls-pemfile = { version = "1", optional = true }
+rustls-pemfile = { version = "2", optional = true }
 
 # Plugins
 tcloud-archive = { path = "../tcloud-archive", optional = true }
 
 [features]
-#default = [ "normal-log", "openssl", "archive" ]
-default = [ "normal-log", "no-tls", "archive" ]
+default = [ "normal-log", "rustls", "archive" ]
 
 # Logging
 normal-log = [ "dep:simplelog" ]
@@ -53,7 +52,6 @@ systemd-log = [ "dep:systemd-journal-logger" ]
 # TLS
 no-tls = []
 openssl = [ "dep:openssl", "actix-web/openssl" ]
-openssl-bundled = [ "openssl", "openssl/vendored" ]
 rustls = [ "dep:rustls-pemfile", "dep:rustls", "actix-web/rustls-0_22" ]
 
 # Database
@@ -66,5 +64,5 @@ totp-auth = []
 archive = [ "dep:tcloud-archive" ]
 
 [build-dependencies]
-minifier = "0.2"
+minifier = "0.3"
 

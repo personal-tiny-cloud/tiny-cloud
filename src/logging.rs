@@ -69,20 +69,21 @@ pub fn init_logging() -> Result<(), String> {
 }
 
 #[cfg(feature = "syslog")]
-pub async fn init_logging() -> Result<(), String> {
+pub fn init_logging() -> Result<(), String> {
     let logger = syslog::unix(Formatter3164::default())
         .map_err(|e| format!("Failed to connect to syslog: {e}"))?;
     log::set_boxed_logger(Box::new(BasicLogger::new(logger)))
-        .map(|()| log::set_max_level(get_filter(config!(logging.log_level))));
+        .map(|()| log::set_max_level(get_filter(config!(logging.log_level))))
+        .map_err(|e| format!("Failed to set up syslog logger: {e}"))?;
     Ok(())
 }
 
 #[cfg(feature = "systemd-log")]
-pub async fn init_logging() -> Result<(), String> {
+pub fn init_logging() -> Result<(), String> {
     JournalLog::new()
-        .expect("Failed to create journal log")
+        .map_err(|e| format!("Failed to create journal log: {e}"))?
         .install()
-        .map_err(|e| format!("Failed to set up journal log: {e}"))?;
+        .map_err(|e| format!("Failed to install journal log: {e}"))?;
     log::set_max_level(get_filter(config!(logging.log_level)));
     Ok(())
 }

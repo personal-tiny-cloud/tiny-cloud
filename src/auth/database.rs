@@ -1,8 +1,8 @@
 use crate::auth::DBError;
 use crate::config;
 use async_sqlite::{
-    rusqlite::{self, named_params, OptionalExtension},
-    JournalMode, Pool, PoolBuilder,
+    rusqlite::{self, named_params, ErrorCode, OptionalExtension},
+    Error, JournalMode, Pool, PoolBuilder,
 };
 use rand::{distributions::Alphanumeric, Rng};
 use std::path::PathBuf;
@@ -96,31 +96,6 @@ pub async fn init_db() -> Result<Pool, DBError> {
     Ok(pool)
 }
 
-/// Checks if a row with some value exists
-async fn row_exists(
-    pool: &Pool,
-    table: String,
-    value_name: String,
-    value: String,
-) -> Result<bool, DBError> {
-    let user: Option<String> = pool
-        .conn(move |conn| {
-            conn.query_row(
-                "SELECT ?1 FROM ?2 WHERE ?1=?3",
-                [value_name, table, value],
-                |row| row.get(0),
-            )
-            .optional()
-        })
-        .await
-        .map_err(|e| DBError::ExecError(format!("Failed to check if row exists: {}", e)))?;
-    if let Some(_) = user {
-        Ok(true)
-    } else {
-        Ok(false)
-    }
-}
-
 /// Adds a new user to the database, fails if it already exists.
 /// If TOTP feature is enabled, it requires the totp-secret to be inserted
 pub async fn add_user(
@@ -130,9 +105,9 @@ pub async fn add_user(
     #[cfg(feature = "totp-auth")] totp_secret: String,
     is_admin: bool,
 ) -> Result<(), DBError> {
-    if row_exists(pool, "users".into(), "username".into(), username.clone()).await? {
-        return Err(DBError::UserExists);
-    }
+    //if row_exists(pool, "users".into(), "username".into(), username.clone()).await? {
+    //    return Err(DBError::UserExists);
+    //}
     pool.conn(move |conn| {
         conn.execute(
             INSERT_USER,
@@ -152,7 +127,16 @@ pub async fn add_user(
         )
     })
     .await
-    .map_err(|e| DBError::ExecError(format!("Failed to insert user: {}", e)))?;
+    .map_err(|e| {
+        if let Error::Rusqlite(ref err) = e {
+            if let rusqlite::Error::SqliteFailure(err, _) = err {
+                if err.code == ErrorCode::ConstraintViolation {
+                    return DBError::UserExists;
+                }
+            }
+        }
+        DBError::ExecError(format!("Failed to insert user: {e}"))
+    })?;
     Ok(())
 }
 
@@ -179,7 +163,7 @@ fn get_user_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<User> {
 
 /// Returns a user. User contains the TOTP secret depending on wether or not
 /// the "totp-auth" feature is enabled.
-pub async fn get_user(pool: &Pool, username: String) -> Result<User, DBError> {
+pub async fn get_user(pool: &Pool, username: String) -> Result<Option<User>, DBError> {
     Ok(pool
         .conn(|conn| {
             conn.query_row(
@@ -187,16 +171,17 @@ pub async fn get_user(pool: &Pool, username: String) -> Result<User, DBError> {
                 [username],
                 get_user_row,
             )
+            .optional()
         })
         .await
-        .map_err(|e| DBError::ExecError(format!("Failed to get user: {}", e)))?)
+        .map_err(|e| DBError::ExecError(format!("Failed to get user: {e}")))?)
 }
 
 /// Deletes a user from database
 pub async fn delete_user(pool: &Pool, username: String) -> Result<(), DBError> {
     pool.conn(move |conn| conn.execute("DELETE FROM users WHERE username=?1", [username]))
         .await
-        .map_err(|e| DBError::ExecError(format!("Failed to delete user: {}", e)))?;
+        .map_err(|e| DBError::ExecError(format!("Failed to delete user: {e}")))?;
     Ok(())
 }
 
@@ -234,7 +219,7 @@ pub async fn create_token(pool: &Pool, duration_secs: Option<u64>) -> Result<Str
             )
         })
         .await
-        .map_err(|e| DBError::ExecError(format!("Failed to create token: {}", e)))?;
+        .map_err(|e| DBError::ExecError(format!("Failed to create token: {e}")))?;
         Ok(_token)
     } else {
         Err(DBError::NotEnabled("registration tokens".into()))

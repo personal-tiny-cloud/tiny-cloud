@@ -1,4 +1,4 @@
-use crate::auth::{add_user, database};
+use crate::auth::{add_user, database, error::AuthError};
 use std::io::{self, Write};
 use zeroize::Zeroize;
 
@@ -45,7 +45,11 @@ pub async fn create_user() -> Result<(), String> {
     // Add user to DB
     add_user(&pool, user.clone(), &password, is_admin)
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| match e {
+            AuthError::InvalidRegCredentials(ref err) => format!("{e}: {err}"),
+            AuthError::InternalError(ref err) => format!("{e}: {err}"),
+            _ => e.to_string(),
+        })?;
 
     if is_admin {
         println!(

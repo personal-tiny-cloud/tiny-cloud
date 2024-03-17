@@ -1,4 +1,3 @@
-use crate::config;
 use serde::{Deserialize, Serialize};
 use std::env::current_exe;
 use std::path::Path;
@@ -13,6 +12,7 @@ pub struct Server {
     pub host: String,
     pub port: u16,
     pub workers: usize,
+    pub is_behind_proxy: bool,
 }
 
 #[derive(Debug, PartialEq, Clone, Serialize, Deserialize)]
@@ -79,6 +79,7 @@ impl Config {
                 host: "127.0.0.1".into(),
                 port: 80,
                 workers: num_cpus::get(),
+                is_behind_proxy: false,
             },
             logging: {
                 #[cfg(feature = "normal-log")]
@@ -120,41 +121,35 @@ impl Config {
     }
 }
 
-pub async fn open<P: AsRef<Path>>(path: P) -> Result<(), String> {
-    let mut file = File::open(path)
+pub async fn open<P: AsRef<Path> + std::fmt::Display>(path: P) -> Result<(), String> {
+    let mut file = File::open(&path)
         .await
-        .map_err(|e| format!("Failed to open config file: {}", e))?;
+        .map_err(|e| format!("Failed to open config file `{path}`: {e}"))?;
     let mut config = String::new();
     file.read_to_string(&mut config)
         .await
-        .map_err(|e| format!("Failed to read config file: {}", e))?;
+        .map_err(|e| format!("Failed to read config file `{path}`: {e}"))?;
     CONFIG
-        .set(serde_yaml::from_str(&config).map_err(|e| format!("Failed to read config: {}", e))?)
-        .expect("Config has already been opened");
+        .set(
+            serde_yaml::from_str(&config)
+                .map_err(|e| format!("Failed to read config file `{path}`: {e}"))?,
+        )
+        .expect("Config has already been opened. This is a bug");
     Ok(())
 }
 
 pub async fn write_default() -> Result<(), String> {
-    let mut path = current_exe().map_err(|e| format!("Failed to get executable's path: {}", e))?;
+    let mut path = current_exe().map_err(|e| format!("Failed to get executable's path: {e}"))?;
     path.pop();
     path.push("default.yaml");
     let mut file = File::create(path)
         .await
-        .map_err(|e| format!("Failed to create config file: {}", e))?;
+        .map_err(|e| format!("Failed to create config file: {e}"))?;
     let default = Config::default()?;
-    let default = serde_yaml::to_string(&default)
-        .map_err(|e| format!("Failed to serialize config: {}", e))?;
+    let default =
+        serde_yaml::to_string(&default).map_err(|e| format!("Failed to serialize config: {e}"))?;
     file.write_all(&mut default.as_bytes())
         .await
-        .map_err(|e| format!("Failed to write config: {}", e))?;
+        .map_err(|e| format!("Failed to write config: {e}"))?;
     Ok(())
-}
-
-pub fn make_url(url: &str) -> String {
-    let prefix = config!(url_prefix);
-    if prefix.is_empty() {
-        url.into()
-    } else {
-        format!("/{}{}", prefix, url)
-    }
 }
