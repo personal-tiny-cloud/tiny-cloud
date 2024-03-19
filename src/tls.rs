@@ -33,12 +33,15 @@ pub fn get_rustls_config(tls: &Tls) -> Result<ServerConfig, String> {
 
     // load TLS key/cert files
     let cert_file = &mut BufReader::new(
-        File::open(&tls.cert_path).map_err(|e| format!("Failed to open certificate file at {}: {e}", tls.cert_path))?,
+        File::open(&tls.cert_path)
+            .map_err(|e| format!("Failed to open certificate file at {}: {e}", tls.cert_path))?,
     );
-    let key_file = &mut BufReader::new(
-        File::open(&tls.privkey_path)
-            .map_err(|e| format!("Failed to open private key file at {}: {e}", tls.privkey_path))?,
-    );
+    let key_file = &mut BufReader::new(File::open(&tls.privkey_path).map_err(|e| {
+        format!(
+            "Failed to open private key file at {}: {e}",
+            tls.privkey_path
+        )
+    })?);
 
     // convert files to key/cert objects
     let cert_chain = certs(cert_file)

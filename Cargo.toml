@@ -42,7 +42,8 @@ rustls-pemfile = { version = "2", optional = true }
 tcloud-archive = { path = "../tcloud-archive", optional = true }
 
 [features]
-default = [ "normal-log", "rustls", "archive" ]
+#default = [ "normal-log", "rustls", "archive" ]
+default = [ "normal-log", "no-tls", "archive" ]
 
 # Logging
 normal-log = [ "dep:simplelog" ]

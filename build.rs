@@ -5,6 +5,20 @@ use std::path::PathBuf;
 
 fn handle_file(file: PathBuf, out_dir: PathBuf) {
     let path_str = file.to_str().expect("Invalid path UTF-8");
+
+    // If it is an image or binary data it is copied
+    if path_str.ends_with("256.png") || path_str.ends_with(".ico") {
+        let mut new_file_path = out_dir.clone();
+        new_file_path.push(&file);
+        let new_path_str = new_file_path.to_str().expect("Invalid path UTF-8");
+        fs::copy(&file, &new_file_path).expect(&format!(
+            "Failed to copy file from {path_str} to {new_path_str}"
+        ));
+        return;
+    }
+
+    // If it is a Web File it is minified and then written
+    // If it's none of them, file is ignored
     let minified: String = if let Ok(file_content) = fs::read_to_string(&file) {
         if path_str.ends_with(".css") {
             css::minify(&file_content)

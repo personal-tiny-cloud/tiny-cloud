@@ -1,3 +1,4 @@
+pub mod images;
 mod home;
 mod login;
 #[macro_use]

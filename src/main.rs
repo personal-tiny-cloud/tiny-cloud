@@ -70,7 +70,11 @@ async fn server(secret_key: Key, database: Pool) -> Result<(), String> {
                 }
             })
             .app_data(Data::clone(&database))
-            .service(web::redirect("/", utils::make_url("/ui")))
+            .service(
+                web::scope(&utils::make_url("/static"))
+                    .route("/favicon.ico", web::get().to(webui::images::favicon))
+                    .route("/logo.png", web::get().to(webui::images::logo)),
+            )
             .service(web::scope(&utils::make_url("/ui")).service(webui::root))
             .service(
                 web::scope(&utils::make_url("/api"))
@@ -91,14 +95,14 @@ async fn server(secret_key: Key, database: Pool) -> Result<(), String> {
 
     // Setting TLS
     let server = {
-        #[cfg(any(feature = "openssl", feature = "openssl-bundled"))]
+        #[cfg(feature = "openssl")]
         {
             server
                 .bind_openssl(
                     format!("{}:{}", config!(server.host), config!(server.port)),
                     tls::get_openssl_config(config!(tls))?,
                 )
-                .map_err(|e| format!("Couldn't bind server with TLS (openssl): {e}"))?
+                .map_err(|e| format!("Failed to bind server with TLS (openssl): {e}"))?
         }
 
         #[cfg(feature = "rustls")]

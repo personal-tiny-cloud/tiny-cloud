@@ -1,4 +1,4 @@
-use crate::{config, web_file};
+use crate::{config, web_file, utils};
 use maud::{html, Markup, PreEscaped, DOCTYPE};
 
 pub fn page() -> Markup {
@@ -6,11 +6,12 @@ pub fn page() -> Markup {
         (DOCTYPE)
         html lang="en-US" {
             head {
-                title { "Login page" }
+                title { "Login Page" }
                 meta name="application-name" content=(config!(server_name));
                 meta charset="utf-8";
                 meta name="viewport" content="width=device-width, initial-scale=1.0";
                 meta name="tcloud-prefix" content=(config!(url_prefix));
+                link rel="icon" type="image/x-icon" href=(utils::make_url("/static/favicon.ico"));
                 script type="text/javascript" { (web_file!("login.js")) }
                 style { (web_file!("global.css")) (web_file!("login.css")) }
             }
