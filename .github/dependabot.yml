@@ -1,0 +1,11 @@
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    commit-message:
+      prefix: "dep update"
+    ignore:
+      # Rustls needs manual updating when actix supports a new version
+      - dependency-name: "rustls"
